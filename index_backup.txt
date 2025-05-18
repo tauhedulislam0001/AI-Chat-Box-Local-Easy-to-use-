@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Chat Box</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <style>
+    body {
+      background: linear-gradient(to right, #0f2027, #203a43, #2c5364);
+      color: white;
+      height: 100vh;
+      margin: 0;
+    }
+    .chat-box {
+      height: calc(100vh - 180px);
+      overflow-y: auto;
+      background-color: #f8f9fa;
+      padding: 15px;
+      border-radius: 8px;
+    }
+    .chat-bubble {
+      display: inline-block;
+      padding: 10px 15px;
+      border-radius: 20px;
+      margin: 5px 0;
+      max-width: 75%;
+      animation: fadeIn 0.3s ease;
+    }
+    .user-msg {
+      text-align: right;
+    }
+    .ai-msg {
+      text-align: left;
+    }
+    .user-bubble {
+      background-color: #0d6efd;
+      color: white;
+    }
+    .ai-bubble {
+      background-color: #e9ecef;
+      color: black;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    #typing-indicator .ai-bubble {
+      font-style: italic;
+      opacity: 0.7;
+    }
+    .dark-mode body {
+      background: #121212;
+    }
+  </style>
+</head>
+<body>
+  <div class="container-fluid py-3">
+    <div class="d-flex justify-content-between align-items-center text-white mb-3">
+      <h3>🧠 AI Chat Box</h3>
+      <div>
+        <button class="btn btn-outline-light btn-sm me-2" onclick="toggleTheme()">🌙 Toggle Dark Mode</button>
+        <button class="btn btn-outline-light btn-sm me-2" onclick="clearChat()">🧹 Clear Chat</button>
+        <button class="btn btn-outline-light btn-sm me-2" onclick="exportChat()">💾 Export</button>
+      </div>
+    </div>
+    <div class="chat-box bg-white text-dark" id="chat-box"></div>
+    <form id="chat-form" class="d-flex mt-3">
+      <input type="text" id="user-input" class="form-control me-2" placeholder="Type a message..." required />
+      <button type="button" class="btn btn-secondary me-2" onclick="startListening()">🎤</button>
+      <button type="submit" class="btn btn-primary">Send</button>
+    </form>
+  </div>
+
+  <script>
+    const API_KEY = "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";
+    const API_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
+    const chatBox = document.getElementById("chat-box");
+    const chatForm = document.getElementById("chat-form");
+    const userInput = document.getElementById("user-input");
+
+    // Load saved chat
+    window.onload = () => {
+      const saved = localStorage.getItem("chatHistory");
+      if (saved) chatBox.innerHTML = saved;
+      chatBox.scrollTop = chatBox.scrollHeight;
+    };
+
+    function saveChat() {
+      localStorage.setItem("chatHistory", chatBox.innerHTML);
+    }
+
+    function addTypingIndicator() {
+      const typingEl = document.createElement("div");
+      typingEl.id = "typing-indicator";
+      typingEl.className = "ai-msg";
+      typingEl.innerHTML = `<div class="chat-bubble ai-bubble">AI is typing<span class="dots">.</span></div>`;
+      chatBox.appendChild(typingEl);
+      chatBox.scrollTop = chatBox.scrollHeight;
+
+      const dotsEl = typingEl.querySelector(".dots");
+      let dots = 1;
+      typingEl._interval = setInterval(() => {
+        dots = (dots % 3) + 1;
+        dotsEl.textContent = ".".repeat(dots);
+      }, 500);
+    }
+
+    function removeTypingIndicator() {
+      const typingEl = document.getElementById("typing-indicator");
+      if (typingEl) {
+        clearInterval(typingEl._interval);
+        typingEl.remove();
+      }
+    }
+
+    chatForm.addEventListener("submit", async function (e) {
+      e.preventDefault();
+      const message = userInput.value.trim();
+      if (!message) return;
+
+      chatBox.innerHTML += `
+        <div class="user-msg">
+          <div class="chat-bubble user-bubble">${message}</div>
+        </div>`;
+      chatBox.scrollTop = chatBox.scrollHeight;
+      saveChat();
+      userInput.value = "";
+      addTypingIndicator();
+
+      try {
+        const response = await fetch(API_ENDPOINT, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${API_KEY}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            model: "deepseek/deepseek-r1:free",
+            messages: [{ role: "user", content: message }]
+          })
+        });
+
+        const data = await response.json();
+        const reply = data.choices?.[0]?.message?.content || "No response";
+        removeTypingIndicator();
+
+        chatBox.innerHTML += `
+          <div class="ai-msg">
+            <div class="chat-bubble ai-bubble">${reply}</div>
+          </div>`;
+        chatBox.scrollTop = chatBox.scrollHeight;
+        saveChat();
+        speak(reply);
+      } catch (error) {
+        console.error("Error:", error);
+        removeTypingIndicator();
+        chatBox.innerHTML += `
+          <div class="ai-msg">
+            <div class="chat-bubble ai-bubble text-danger">Error: Could not get response.</div>
+          </div>`;
+        saveChat();
+      }
+    });
+
+    function toggleTheme() {
+      const html = document.documentElement;
+      html.setAttribute("data-bs-theme", html.getAttribute("data-bs-theme") === "dark" ? "light" : "dark");
+    }
+
+    function clearChat() {
+      if (confirm("Clear all chat?")) {
+        chatBox.innerHTML = "";
+        localStorage.removeItem("chatHistory");
+      }
+    }
+
+    function exportChat() {
+      const text = chatBox.innerText.replace(/\n{2,}/g, "\n\n");
+      const blob = new Blob([text], { type: "text/plain" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "chat.txt";
+      a.click();
+    }
+
+    // Voice-to-text
+    function startListening() {
+      if (!('webkitSpeechRecognition' in window)) {
+        alert("Voice recognition not supported.");
+        return;
+      }
+      const recognition = new webkitSpeechRecognition();
+      recognition.lang = 'en-US';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      recognition.start();
+      recognition.onresult = function(event) {
+        userInput.value = event.results[0][0].transcript;
+      };
+    }
+
+    // Text-to-speech
+    function speak(text) {
+      const synth = window.speechSynthesis;
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'en-US';
+      synth.speak(utterance);
+    }
+  </script>
+</body>
+</html>
